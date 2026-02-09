@@ -46,14 +46,26 @@ class VL53L0X
   def read_distance
     return -1 unless @initialized
 
-    # 1. Start
-    start_measurement
+    begin
+      # 1. Start measurement
+      write_reg(0x00, 0x01)  # SYSRANGE_START
 
-    # 2. Wait
-    sleep_ms(@read_wait_ms)
+      # 2. Wait for measurement to complete
+      sleep_ms(@read_wait_ms)
 
-    # 3. Get (Checks status, reads data, clears interrupt)
-    get_distance
+      # 3. Read distance data directly (without status check)
+      data = read_reg(0x1E, 2)  # RESULT_RANGE_STATUS
+      distance_mm = (data[0] << 8) | data[1]
+
+      # 4. Clear interrupt
+      write_reg(0x0B, 0x01)  # SYSTEM_INTERRUPT_CLEAR
+
+      # 5. Validate and return
+      return -1 if distance_mm >= 8190
+      distance_mm
+    rescue
+      -1
+    end
   end
 
   # Non-Blocking Methods (Polling)
