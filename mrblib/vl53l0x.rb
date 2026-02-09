@@ -18,7 +18,6 @@ class VL53L0X
     @stop_variable = 0
     @initialized = false
     
-    @last_distance = 0
     begin
       # Check chip ID
       who_am_i = read_reg(0xC0, 1)[0]
@@ -84,44 +83,35 @@ class VL53L0X
     end
   end
 
+  def ready_to_get_distance?
+    return false unless @initialized
+
+    status = read_reg(0x13, 1)[0]
+
+    (status & 0x07) != 0
+  end
+
   # Get the latest distance (Non-blocking / Polling)
-  # Checks if new data is ready.
-  # If ready: reads data, updates @last_distance, clears interrupt, returns new value.
-  # If not ready: returns @last_distance immediately.
-  # @return [Integer] Distance in millimeters
   def get_distance
     return -1 unless @initialized
 
     begin
-      # Check RESULT_INTERRUPT_STATUS (Register 0x13)
-      status = read_reg(0x13, 1)[0]
+      # Read distance data (Register 0x1E)
+      data = read_reg(0x1E, 2)
+      dist = (data[0] << 8) | data[1]
 
-      # Check bit 0-2 (0x07) for New Sample Ready
-      if (status & 0x07) != 0
-        # --- Data is Ready ---
+      # Clear interrupt to allow next measurement (Register 0x0B)
+      write_reg(0x0B, 0x01)
 
-        # Read distance data (Register 0x1E)
-        data = read_reg(0x1E, 2)
-        dist = (data[0] << 8) | data[1]
-
-        # Clear interrupt to allow next measurement (Register 0x0B)
-        write_reg(0x0B, 0x01)
-
-        # Update last_distance if valid
-        # 8190 indicates out of range or error
-        if dist < 8190
-          @last_distance = dist
-        else
-          # Keep previous value or set to -1 depending on preference.
-          # Here we set -1 to indicate invalid reading.
-          @last_distance = -1
-        end
+      # Update last_distance if valid
+      # 8190 indicates out of range or error
+      if dist < 8190
+        dist
+      else
+        -1
       end
-      
-      # Return the latest known distance (new or old)
-      @last_distance
     rescue
-      @last_distance
+      -1
     end
   end
 
