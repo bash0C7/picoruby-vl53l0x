@@ -14,7 +14,9 @@ conf.gem github: 'bash0C7/picoruby-vl53l0x', branch: 'main'
 
 - `picoruby-i2c`: I2C communication library (included in PicoRuby)
 
-## Quick Start
+## Quick Start (Blocking Mode)
+
+This is the simplest way to use the sensor. The `read_distance` method waits until the measurement is complete before returning.
 
 ```ruby
 require 'i2c'
@@ -33,7 +35,7 @@ vl53l0x = VL53L0X.new(i2c)
 
 # Check if sensor is ready
 if vl53l0x.ready?
-  # Read distance measurement
+  # Read distance measurement (Blocks for ~30ms)
   distance = vl53l0x.read_distance
   if distance > 0
     puts "Distance: #{distance}mm"
@@ -43,6 +45,32 @@ if vl53l0x.ready?
 else
   puts "Sensor initialization failed"
 end
+
+## Advanced Usage (Non-Blocking Mode)
+
+If you need to perform other tasks (like UI updates or handling other sensors) while the VL53L0X is measuring, use the non-blocking methods.
+
+1. **`start_measurement`**: Triggers a new measurement and returns immediately.
+2. **`get_distance`**: Checks if data is ready. If yes, it updates and returns the new value. If no, it returns the previous value.
+
+```ruby
+# Start the first measurement
+vl53l0x.start_measurement
+
+loop do
+  # 1. Retrieve the latest distance (Does not block)
+  distance = vl53l0x.get_distance
+  puts "Distance: #{distance}mm"
+
+  # 2. Trigger the next measurement
+  vl53l0x.start_measurement
+
+  # 3. Perform other tasks here...
+  # (e.g., Update LED matrix, check buttons, network request)
+
+  # 4. Wait according to the timing budget (approx 33ms for default)
+  sleep_ms(VL53L0X::TIMING_BUDGET_DEFAULT)
+end
 ```
 
 ## API Reference
@@ -50,22 +78,24 @@ end
 ### Initialization
 
 ```ruby
-# Default I2C address (0x29)
+# Default I2C address (0x29) and default wait time (30ms)
 vl53l0x = VL53L0X.new(i2c)
 
 # Custom I2C address
 vl53l0x = VL53L0X.new(i2c, 0x30)
+
+# Custom address and wait time for blocking read
+vl53l0x = VL53L0X.new(i2c, 0x29, 40)
 ```
 
-### Distance Measurement
+### Methods
 
-```ruby
-# Check if sensor is ready
-ready = vl53l0x.ready?         # Boolean
-
-# Read distance measurement
-distance = vl53l0x.read_distance  # Integer (millimeters) or -1 on error
-```
+| Method | Description | Blocking |
+| --- | --- | --- |
+| `ready?` | Returns `true` if the sensor is initialized successfully. | No |
+| `read_distance` | Triggers measurement, waits, and returns distance (mm). Returns `-1` on error. | **Yes** |
+| `start_measurement` | Triggers a Single Shot measurement. Returns `true` on success. | No |
+| `get_distance` | Polling method. Returns the latest known distance. If a new measurement is ready, it updates the value; otherwise, it returns the previous value. | No |
 
 ## Complete Example
 
@@ -106,6 +136,7 @@ puts "---"
 
 # Continuous distance reading loop
 loop do
+  # Blocking call (simple)
   distance = vl53l0x.read_distance
   
   if distance > 0
@@ -141,11 +172,12 @@ see: https://www.switch-science.com/products/5219
 ### Error Conditions
 
 The sensor returns `-1` when:
-- Sensor is not properly initialized (chip ID mismatch)
-- I2C communication fails
-- Distance is out of measurable range (≥8190mm)
-- Target is too close (<30mm)
-- Target is highly reflective or transparent
+
+* Sensor is not properly initialized (chip ID mismatch)
+* I2C communication fails
+* Distance is out of measurable range (≥8190mm)
+* Target is too close (<30mm)
+* Target is highly reflective or transparent
 
 ## Error Handling
 
@@ -187,19 +219,19 @@ end
 ### Common Issues
 
 1. **Sensor not detected**
-   - Check VCC (3.3V), GND, SDA, SCL connections
-   - Verify I2C address (0x29)
-   - Check pull-up resistors on SDA/SCL
+* Check VCC (3.3V), GND, SDA, SCL connections
+* Verify I2C address (0x29)
+* Check pull-up resistors on SDA/SCL
 
 2. **Inconsistent readings**
-   - Ensure stable power supply
-   - Check for electromagnetic interference
-   - Verify target surface is not highly reflective
+* Ensure stable power supply
+* Check for electromagnetic interference
+* Verify target surface is not highly reflective
 
 3. **Out of range errors**
-   - Target may be closer than 30mm
-   - Target may be farther than 2000mm
-   - Try different target surface (matte, non-reflective)
+* Target may be closer than 30mm
+* Target may be farther than 2000mm
+* Try different target surface (matte, non-reflective)
 
 ### Wiring Example (ATOM Matrix)
 
