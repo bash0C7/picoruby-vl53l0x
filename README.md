@@ -2,10 +2,6 @@
 
 A pure Ruby implementation of VL53L0X distance sensor driver for PicoRuby.
 
-> **Compatibility:** the public API of the original v0 release
-> (`VL53L0X.new(i2c)` + `vl53l0x.ready?` + `vl53l0x.read_distance`) is
-> preserved exactly. Existing code keeps working without changes.
-
 ## Installation
 
 Add this line to your PicoRuby build configuration (`picoruby/build_config/xtensa-esp.rb`):
