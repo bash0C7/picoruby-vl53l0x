@@ -225,6 +225,21 @@ SDA     -> GPIO 25
 SCL     -> GPIO 21
 ```
 
+## Testing
+
+Host-side tests run under CRuby with `test-unit` and a `FakeI2C` double:
+
+```sh
+bundle install
+bundle exec rake test
+```
+
+Tests cover initialization, blocking `read_distance`, the non-blocking
+primitives (`start_measurement`, `ready_to_get_distance?`, `get_distance`),
+and the cooperative `tick` sampler (interval gating, `configure_sampling`,
+femtoruby `now_ms == 0` skip). The background-Task sampler is verified
+on hardware (no `Task` under CRuby).
+
 ## License
 
 MIT

@@ -1,0 +1,49 @@
+# @sidebar sensors
+
+# Forward declaration (full type lives in picoruby-mruby/sig/task.rbs).
+class Task end
+
+class VL53L0X
+  I2C_ADDRESS: Integer
+  CHIP_ID: Integer
+  TIMING_BUDGET_DEFAULT: Integer
+  DEFAULT_SAMPLER_INTERVAL_MS: Integer
+
+  @i2c: I2C
+  @address: Integer
+  @read_wait_ms: Integer
+  @stop_variable: Integer
+  @initialized: bool
+  @latest: Integer | nil
+  @latest_at_ms: Integer
+  @sampler_interval_ms: Integer
+  @sampler_task: Task | nil
+  @sampler_running: bool
+
+  def initialize: (I2C i2c_instance, ?Integer address, ?Integer read_wait_ms) -> void
+
+  # Public blocking API (frozen — must not break)
+  def ready?: () -> bool
+  def read_distance: () -> Integer
+  def start_measurement: () -> bool
+  def ready_to_get_distance?: () -> bool
+  def get_distance: () -> Integer
+
+  # Async / sampler API
+  def configure_sampling: (?interval_ms: Integer) -> void
+  def tick: (?Integer? now_ms) -> bool
+  def fresh?: () -> bool
+  def latest_distance: () -> (Integer | nil)
+  def start_sampling: (?interval_ms: Integer) -> Task
+  def stop_sampling: () -> void
+
+  # Internals (called by Task body / time helper)
+  def _run_sampler_loop: () -> void
+  def _now_ms: () -> Integer
+
+  private
+
+  def init_sampler_state: () -> void
+  def write_reg: (Integer reg, Integer data) -> void
+  def read_reg: (Integer reg, Integer length) -> Array[Integer]
+end

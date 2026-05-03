@@ -8,12 +8,21 @@ be added.
 
 The following surface is frozen:
 
+Blocking / primitives:
 - `VL53L0X.new(i2c)`, `VL53L0X.new(i2c, address)`, `VL53L0X.new(i2c, address, read_wait_ms)`
 - `vl53l0x.ready?` → Boolean
 - `vl53l0x.read_distance` → Integer (mm or -1)
 - `vl53l0x.start_measurement` → Boolean
 - `vl53l0x.ready_to_get_distance?` → Boolean
 - `vl53l0x.get_distance` → Integer (mm or -1)
+
+Async / sampler:
+- `vl53l0x.configure_sampling(interval_ms:)`
+- `vl53l0x.tick(now_ms = nil)` → Boolean (true when fresh sample stored)
+- `vl53l0x.fresh?` → Boolean
+- `vl53l0x.latest_distance` → Integer | nil
+- `vl53l0x.start_sampling(interval_ms:)` → Task
+- `vl53l0x.stop_sampling`
 
 ## PicoRuby compatibility
 
@@ -87,11 +96,22 @@ Task causes silent Task death on mruby/c. `_run_sampler_loop` must NOT call `_no
 
 ## Tests
 
-No automated test suite currently exists. Validate changes via:
-- On-device smoke test with ATOM Matrix (blocking `read_distance`)
-- On-device async smoke test (tick or start_sampling + latest_distance)
+Host-side test suite using `test-unit` + a `FakeI2C` double:
 
-Combat-proof location: `~/dev/src/github.com/bash0C7/picoruby-recipes/components/R2P2-ESP32/storage/home/`
+```sh
+bundle install
+bundle exec rake test
+```
+
+Covers initialize / ready? / read_distance / start_measurement /
+ready_to_get_distance? / get_distance / tick (interval, skip-when-now_ms-zero,
+configure_sampling). Background-Task sampler (`start_sampling` /
+`_run_sampler_loop`) is **not** unit-tested — `Task` does not exist under
+CRuby — and is verified on hardware instead.
+
+On-device smoke / benchmark scripts live in:
+`~/dev/src/github.com/bash0C7/picoruby-recipes/src_components/R2P2-ESP32/storage/home/`
+(`tof_async.rb`, `tof_tick.rb`, `tof_bench.rb`).
 
 ## Git
 
