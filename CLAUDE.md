@@ -4,14 +4,20 @@ This is a **PicoRuby Runtime Gem** following upstream `picoruby/picoruby`
 conventions. All logic is pure Ruby. There is no C extension and none should
 be added.
 
-## Public API contract — DO NOT BREAK
+## Public API contract
 
-The following surface is frozen:
+### Stable (frozen — DO NOT BREAK)
 
-Blocking / primitives:
+The v0 release surface. Existing user code depends on these — never change
+the signatures or return-value contracts:
+
 - `VL53L0X.new(i2c)`, `VL53L0X.new(i2c, address)`, `VL53L0X.new(i2c, address, read_wait_ms)`
 - `vl53l0x.ready?` → Boolean
 - `vl53l0x.read_distance` → Integer (mm or -1)
+
+### Experimental (v0.1.0 — may change before v1.0.0)
+
+Manual non-blocking primitives:
 - `vl53l0x.start_measurement` → Boolean
 - `vl53l0x.ready_to_get_distance?` → Boolean
 - `vl53l0x.get_distance` → Integer (mm or -1)
@@ -23,6 +29,9 @@ Async / sampler:
 - `vl53l0x.latest_distance` → Integer | nil
 - `vl53l0x.start_sampling(interval_ms:)` → Task
 - `vl53l0x.stop_sampling`
+
+Renames / removals in this group are permitted with a CHANGELOG entry until
+v1.0.0; the stable surface above is not.
 
 ## PicoRuby compatibility
 
