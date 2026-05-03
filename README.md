@@ -14,13 +14,14 @@ conf.gem github: 'bash0C7/picoruby-vl53l0x', branch: 'main'
 
 - `picoruby-i2c`: I2C communication library (included in PicoRuby)
 
-## Quick Start
+## Quick Start (Blocking Mode)
+
+The simplest way to use the sensor. `read_distance` triggers a measurement and waits ~30ms before returning.
 
 ```ruby
 require 'i2c'
 require 'vl53l0x'
 
-# Initialize I2C (for ATOM Matrix)
 i2c = I2C.new(
   unit: :ESP32_I2C0,
   frequency: 100_000,
@@ -28,12 +29,9 @@ i2c = I2C.new(
   scl_pin: 21
 )
 
-# Initialize VL53L0X sensor
 vl53l0x = VL53L0X.new(i2c)
 
-# Check if sensor is ready
 if vl53l0x.ready?
-  # Read distance measurement
   distance = vl53l0x.read_distance
   if distance > 0
     puts "Distance: #{distance}mm"
@@ -45,40 +43,120 @@ else
 end
 ```
 
+## Async Usage
+
+Three acquisition strategies are available. Pick one per application — mixing strategies shares the I2C bus without mutex protection.
+
+### 1. Tick-driven sampler (main loop in control)
+
+Call `tick` from your main loop. Each call performs one full measurement cycle:
+`start_measurement → sleep_ms(33) → get_distance`. The `sleep_ms` cooperatively
+yields, so other Tasks run during the wait.
+
+```ruby
+vl53l0x = VL53L0X.new(i2c)
+vl53l0x.configure_sampling(interval_ms: 33)  # optional; 33ms is the default
+
+loop do
+  if vl53l0x.tick
+    dist = vl53l0x.latest_distance
+    puts "Distance: #{dist}mm" if dist
+  end
+end
+```
+
+`tick` returns `true` when a fresh distance is stored. Use `fresh?` to gate first access:
+
+```ruby
+loop do
+  vl53l0x.tick
+  puts vl53l0x.latest_distance if vl53l0x.fresh?
+end
+```
+
+### 2. Background Task sampler (main loop runs freely)
+
+Spawn a background Task that measures continuously while your main loop does other work.
+
+```ruby
+vl53l0x = VL53L0X.new(i2c)
+vl53l0x.start_sampling(interval_ms: 33)  # Task runs in background
+
+loop do
+  dist = vl53l0x.latest_distance   # no I2C; reads shared cache
+  puts "Distance: #{dist}mm" if dist
+  sleep_ms 200                      # main loop runs slowly; samples keep flowing
+end
+
+vl53l0x.stop_sampling
+```
+
+Works on both mruby/c (R2P2-ESP32) and microruby. The gem detects via `RUBY_ENGINE`.
+
+### 3. Manual polling (low-level non-blocking)
+
+For fine-grained control — trigger once, poll for readiness, then read:
+
+```ruby
+vl53l0x.start_measurement
+
+loop do
+  if vl53l0x.ready_to_get_distance?
+    distance = vl53l0x.get_distance
+    puts "Distance: #{distance}mm"
+    vl53l0x.start_measurement    # trigger next measurement
+  end
+
+  # other work here...
+  sleep_ms 5
+end
+```
+
 ## API Reference
 
 ### Initialization
 
 ```ruby
-# Default I2C address (0x29)
-vl53l0x = VL53L0X.new(i2c)
-
-# Custom I2C address
-vl53l0x = VL53L0X.new(i2c, 0x30)
+vl53l0x = VL53L0X.new(i2c)              # default address 0x29, wait 30ms
+vl53l0x = VL53L0X.new(i2c, 0x30)        # custom I2C address
+vl53l0x = VL53L0X.new(i2c, 0x29, 40)   # custom address and blocking wait time
 ```
 
-### Distance Measurement
+### Core Methods
+
+| Method | Description | Blocking |
+|---|---|---|
+| `ready?` | Returns `true` if initialized successfully | No |
+| `read_distance` | Trigger, wait, read; returns distance (mm) or `-1` | **Yes (~30ms)** |
+| `start_measurement` | Trigger a single-shot measurement | No |
+| `ready_to_get_distance?` | Poll whether result is available | No |
+| `get_distance` | Read result and clear interrupt | No |
+
+### Async / Sampler Methods
+
+| Method | Description |
+|---|---|
+| `configure_sampling(interval_ms:)` | Set interval for `tick` / `start_sampling` (default: 33ms) |
+| `tick(now_ms = nil)` | Cooperative tick; one call = one sample (~33ms cooperative wait); returns `true` when fresh distance stored |
+| `fresh?` | `true` once at least one sample has been cached |
+| `latest_distance` | Last cached distance (mm), or `nil` if never sampled |
+| `start_sampling(interval_ms:)` | Spawn background Task; idempotent |
+| `stop_sampling` | Halt background Task |
+
+### Constants
+
+| Constant | Value | Description |
+|---|---|---|
+| `TIMING_BUDGET_DEFAULT` | `33` | Default single-shot timing budget (ms) |
+| `DEFAULT_SAMPLER_INTERVAL_MS` | `33` | Default `tick` / `start_sampling` interval |
+| `I2C_ADDRESS` | `0x29` | Default I2C address |
+
+## Complete Example (ATOM Matrix)
 
 ```ruby
-# Check if sensor is ready
-ready = vl53l0x.ready?         # Boolean
-
-# Read distance measurement
-distance = vl53l0x.read_distance  # Integer (millimeters) or -1 on error
-```
-
-## Complete Example
-
-This example demonstrates distance monitoring with the VL53L0X sensor. The sample code was tested and runs on ATOM Matrix:
-
-```ruby
-# VL53L0X distance sensor test - ATOM Matrix configuration
 require 'i2c'
 require 'vl53l0x'
 
-puts "VL53L0X distance sensor test started"
-
-# Initialize I2C with ATOM Matrix configuration
 i2c = I2C.new(
   unit: :ESP32_I2C0,
   frequency: 100_000,
@@ -87,48 +165,29 @@ i2c = I2C.new(
   timeout: 2000
 )
 
-puts "I2C config: ESP32_I2C0, SDA:25, SCL:21"
-
-# Initialize VL53L0X sensor
 vl53l0x = VL53L0X.new(i2c)
 
-if vl53l0x.ready?
-  puts "VL53L0X sensor initialized successfully"
-  puts "Range: 30mm - 2000mm"
-else
-  puts "Failed to initialize VL53L0X sensor"
-  puts "Check connections and power supply"
+unless vl53l0x.ready?
+  puts "Failed to initialize VL53L0X"
   exit
 end
 
-puts "Starting distance measurements..."
-puts "---"
+# Background sampler: main loop free to do LED / display work
+vl53l0x.start_sampling(interval_ms: VL53L0X::TIMING_BUDGET_DEFAULT)
 
-# Continuous distance reading loop
 loop do
-  distance = vl53l0x.read_distance
-  
-  if distance > 0
-    # Categorize distance ranges
-    status = case distance
-             when 0..50
-               "[Very Close]"
-             when 51..200
-               "[Close]"
-             when 201..500
-               "[Medium]"
-             when 501..1000
-               "[Far]"
-             else
-               "[Very Far]"
+  dist = vl53l0x.latest_distance
+  if dist
+    status = case dist
+             when 0..50   then "[Very Close]"
+             when 51..200  then "[Close]"
+             when 201..500 then "[Medium]"
+             when 501..1000 then "[Far]"
+             else               "[Very Far]"
              end
-    
-    puts "Distance: #{distance}mm #{status}"
-  else
-    puts "Out of range or measurement error"
+    puts "Distance: #{dist}mm #{status}"
   end
-  
-  sleep_ms(200)  # 200ms between readings
+  sleep_ms 200
 end
 ```
 
@@ -140,66 +199,21 @@ see: https://www.switch-science.com/products/5219
 
 ### Error Conditions
 
-The sensor returns `-1` when:
+Returns `-1` when:
+
 - Sensor is not properly initialized (chip ID mismatch)
 - I2C communication fails
 - Distance is out of measurable range (≥8190mm)
 - Target is too close (<30mm)
 - Target is highly reflective or transparent
 
-## Error Handling
+`latest_distance` returns `nil` before the first sample has been taken.
 
-The library handles common error conditions gracefully:
+### Async Timing Note
 
-```ruby
-begin
-  vl53l0x = VL53L0X.new(i2c)
-  
-  unless vl53l0x.ready?
-    puts "Sensor initialization failed"
-    puts "Possible causes:"
-    puts "- Incorrect wiring (SDA/SCL)"
-    puts "- Power supply issues"
-    puts "- I2C address conflict"
-    exit
-  end
-  
-  distance = vl53l0x.read_distance
-  case distance
-  when -1
-    puts "Measurement failed or out of range"
-  when 0..29
-    puts "Target too close (minimum: 30mm)"
-  else
-    puts "Distance: #{distance}mm"
-  end
-  
-rescue IOError => e
-  puts "I2C communication error: #{e.message}"
-  puts "Check connections and try again"
-rescue => e
-  puts "Unexpected error: #{e.message}"
-end
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Sensor not detected**
-   - Check VCC (3.3V), GND, SDA, SCL connections
-   - Verify I2C address (0x29)
-   - Check pull-up resistors on SDA/SCL
-
-2. **Inconsistent readings**
-   - Ensure stable power supply
-   - Check for electromagnetic interference
-   - Verify target surface is not highly reflective
-
-3. **Out of range errors**
-   - Target may be closer than 30mm
-   - Target may be farther than 2000mm
-   - Try different target surface (matte, non-reflective)
+The VL53L0X single-shot measurement takes ~30ms at the default timing budget.
+`DEFAULT_SAMPLER_INTERVAL_MS = 33` is the minimum safe interval. Set a larger
+value if measurements are unreliable or power consumption is a concern.
 
 ### Wiring Example (ATOM Matrix)
 
@@ -210,6 +224,21 @@ GND     -> GND
 SDA     -> GPIO 25
 SCL     -> GPIO 21
 ```
+
+## Testing
+
+Host-side tests run under CRuby with `test-unit` and a `FakeI2C` double:
+
+```sh
+bundle install
+bundle exec rake test
+```
+
+Tests cover initialization, blocking `read_distance`, the non-blocking
+primitives (`start_measurement`, `ready_to_get_distance?`, `get_distance`),
+and the cooperative `tick` sampler (interval gating, `configure_sampling`,
+femtoruby `now_ms == 0` skip). The background-Task sampler is verified
+on hardware (no `Task` under CRuby).
 
 ## License
 
